@@ -12,7 +12,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
-import io.ktor.server.application.call
 import io.ktor.server.cio.CIO
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.response.respondText
@@ -84,20 +83,22 @@ fun startKtorServer() {
 }
 
 fun getLocalIpAddress(): String {
+    val result = mutableListOf<String>()
     try {
-        val interfaces = NetworkInterface.getNetworkInterfaces()
+        val interfaces = NetworkInterface.getNetworkInterfaces() ?: return ""
         while (interfaces.hasMoreElements()) {
             val networkInterface = interfaces.nextElement()
+            if (!networkInterface.isUp || networkInterface.isLoopback) continue
             val addresses = networkInterface.inetAddresses
             while (addresses.hasMoreElements()) {
                 val address = addresses.nextElement()
                 if (!address.isLoopbackAddress && address is Inet4Address) {
-                    return address.hostAddress ?: "Unavailable"
+                    address.hostAddress?.let { result.add(it) }
                 }
             }
         }
     } catch (e: Exception) {
         e.printStackTrace()
     }
-    return "127.0.0.1"
+    return result.joinToString(",")
 }
