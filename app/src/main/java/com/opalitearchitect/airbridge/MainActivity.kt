@@ -12,7 +12,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
-import io.ktor.server.application.call
 import io.ktor.server.cio.CIO
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.response.respondText
@@ -29,6 +28,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.dp
+import io.ktor.server.cio.CIOApplicationEngine
+import io.ktor.server.engine.ApplicationEngine
+import io.ktor.server.engine.EmbeddedServer
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -46,9 +48,15 @@ fun GreetingPreview() {
     ComposableFun()
 }
 
+var serverInstance: EmbeddedServer<
+        CIOApplicationEngine,
+        CIOApplicationEngine.Configuration
+        >? = null
+
 @Composable
 fun ComposableFun() {
     var serverAddress by remember { mutableStateOf("") }
+    var isServerRunning by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier.fillMaxSize(),
@@ -57,11 +65,18 @@ fun ComposableFun() {
     ) {
         Button(
             onClick = {
-                startKtorServer()
-                serverAddress = "http://${getLocalIpAddress()}:8080"
+                if (serverInstance != null) {
+                    stopKtorServer()
+                    isServerRunning = false
+                    serverAddress = ""
+                } else {
+                    startKtorServer()
+                    isServerRunning = true
+                    serverAddress = "http://${getLocalIpAddress()}:8080"
+                }
             }
         ) {
-            Text(text = "Click Me")
+            Text(text = if (isServerRunning) "Server is running" else "Start server")
         }
 
         if (serverAddress.isNotEmpty()) {
@@ -73,31 +88,41 @@ fun ComposableFun() {
 
 fun startKtorServer() {
     thread {
-        embeddedServer(CIO, host = "0.0.0.0", port = 8080) {
+        serverInstance = embeddedServer(CIO, host = "0.0.0.0", port = 8080) {
             routing {
                 get("/") {
                     call.respondText("Hello World!")
                 }
             }
-        }.start(wait = true)
+        }
+        serverInstance?.start(wait = true)
+    }
+}
+
+fun stopKtorServer() {
+    thread {
+        serverInstance?.stop(1000, 2000)
+        serverInstance = null
     }
 }
 
 fun getLocalIpAddress(): String {
+    val result = mutableListOf<String>()
     try {
-        val interfaces = NetworkInterface.getNetworkInterfaces()
+        val interfaces = NetworkInterface.getNetworkInterfaces() ?: return ""
         while (interfaces.hasMoreElements()) {
             val networkInterface = interfaces.nextElement()
+            if (!networkInterface.isUp || networkInterface.isLoopback) continue
             val addresses = networkInterface.inetAddresses
             while (addresses.hasMoreElements()) {
                 val address = addresses.nextElement()
                 if (!address.isLoopbackAddress && address is Inet4Address) {
-                    return address.hostAddress ?: "Unavailable"
+                    address.hostAddress?.let { result.add(it) }
                 }
             }
         }
     } catch (e: Exception) {
         e.printStackTrace()
     }
-    return "127.0.0.1"
+    return result.joinToString(",")
 }
