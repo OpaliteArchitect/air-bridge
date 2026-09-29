@@ -37,6 +37,7 @@ import io.ktor.server.engine.ApplicationEngine
 import io.ktor.server.engine.EmbeddedServer
 import android.net.Uri
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.server.response.respondBytesWriter
 import io.ktor.utils.io.jvm.javaio.toOutputStream
 
@@ -130,6 +131,13 @@ fun startKtorServer(context: Context, getFileUri: () -> Uri?) {
                         return@get
                     }
 
+                    val fileName = getFileName(context, uri) ?: "downloaded_file"
+
+                    call.response.headers.append(
+                        HttpHeaders.ContentDisposition,
+                        "attachment; filename=\"$fileName\""
+                    )
+
                     call.respondBytesWriter(contentType = ContentType.Application.OctetStream) {
                         inputStream.use { input ->
                             input.copyTo(this.toOutputStream())
@@ -147,6 +155,29 @@ fun stopKtorServer() {
         serverInstance?.stop(1000, 2000)
         serverInstance = null
     }
+}
+
+fun getFileName(context: Context, uri: Uri): String? {
+    var result: String? = null
+    if (uri.scheme == "content") {
+        val cursor = context.contentResolver.query(uri, null, null, null, null)
+        cursor?.use {
+            if (it.moveToFirst()) {
+                val index = it.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                if (index != -1) {
+                    result = it.getString(index)
+                }
+            }
+        }
+    }
+    if (result == null) {
+        result = uri.path
+        val cut = result?.lastIndexOf('/') ?: -1
+        if (cut != -1) {
+            result = result?.substring(cut + 1)
+        }
+    }
+    return result
 }
 
 fun getLocalIpAddress(): String {
