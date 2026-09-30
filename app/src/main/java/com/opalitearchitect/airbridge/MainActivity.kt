@@ -1,9 +1,12 @@
 package com.opalitearchitect.airbridge
 
+import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Button
@@ -27,10 +30,16 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import io.ktor.server.cio.CIOApplicationEngine
 import io.ktor.server.engine.ApplicationEngine
 import io.ktor.server.engine.EmbeddedServer
+import android.net.Uri
+import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
+import io.ktor.server.response.respondBytesWriter
+import io.ktor.utils.io.jvm.javaio.toOutputStream
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -55,8 +64,16 @@ var serverInstance: EmbeddedServer<
 
 @Composable
 fun ComposableFun() {
+    val context = LocalContext.current
     var serverAddress by remember { mutableStateOf("") }
     var isServerRunning by remember { mutableStateOf(false) }
+    var selectedFileUri by remember { mutableStateOf<Uri?>(null) }
+
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        selectedFileUri = uri
+    }
 
     Column(
         modifier = Modifier.fillMaxSize(),
@@ -69,14 +86,22 @@ fun ComposableFun() {
                     stopKtorServer()
                     isServerRunning = false
                     serverAddress = ""
+                    selectedFileUri = null
                 } else {
-                    startKtorServer()
+                    startKtorServer(context) { selectedFileUri }
                     isServerRunning = true
                     serverAddress = "http://${getLocalIpAddress()}:8080"
                 }
             }
         ) {
-            Text(text = if (isServerRunning) "Server is running" else "Start server")
+            Text(text = if (isServerRunning) "Stop server" else "Start server")
+        }
+
+        if (isServerRunning) {
+            Spacer(modifier = Modifier.height(16.dp))
+            Button(onClick = { filePickerLauncher.launch("*/*") }) {
+                Text(text = if (selectedFileUri == null) "Select File" else "Change File")
+            }
         }
 
         if (serverAddress.isNotEmpty()) {
@@ -86,12 +111,38 @@ fun ComposableFun() {
     }
 }
 
-fun startKtorServer() {
+fun startKtorServer(context: Context, getFileUri: () -> Uri?) {
     thread {
         serverInstance = embeddedServer(CIO, host = "0.0.0.0", port = 8080) {
             routing {
                 get("/") {
                     call.respondText("Hello World!")
+                }
+                get("/download") {
+                    val uri = getFileUri()
+                    if (uri == null) {
+                        call.respondText("No file selected yet.")
+                        return@get
+                    }
+
+                    val inputStream = context.contentResolver.openInputStream(uri)
+                    if (inputStream == null) {
+                        call.respondText("Unable to read file.")
+                        return@get
+                    }
+
+                    val fileName = getFileName(context, uri) ?: "downloaded_file"
+
+                    call.response.headers.append(
+                        HttpHeaders.ContentDisposition,
+                        "attachment; filename=\"$fileName\""
+                    )
+
+                    call.respondBytesWriter(contentType = ContentType.Application.OctetStream) {
+                        inputStream.use { input ->
+                            input.copyTo(this.toOutputStream())
+                        }
+                    }
                 }
             }
         }
@@ -104,6 +155,29 @@ fun stopKtorServer() {
         serverInstance?.stop(1000, 2000)
         serverInstance = null
     }
+}
+
+fun getFileName(context: Context, uri: Uri): String? {
+    var result: String? = null
+    if (uri.scheme == "content") {
+        val cursor = context.contentResolver.query(uri, null, null, null, null)
+        cursor?.use {
+            if (it.moveToFirst()) {
+                val index = it.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                if (index != -1) {
+                    result = it.getString(index)
+                }
+            }
+        }
+    }
+    if (result == null) {
+        result = uri.path
+        val cut = result?.lastIndexOf('/') ?: -1
+        if (cut != -1) {
+            result = result?.substring(cut + 1)
+        }
+    }
+    return result
 }
 
 fun getLocalIpAddress(): String {
