@@ -33,7 +33,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import io.ktor.server.cio.CIOApplicationEngine
-import io.ktor.server.engine.ApplicationEngine
 import io.ktor.server.engine.EmbeddedServer
 import android.net.Uri
 import io.ktor.http.ContentType
@@ -49,12 +48,6 @@ class MainActivity : ComponentActivity() {
             ComposableFun()
         }
     }
-}
-
-@Preview(showBackground = true)
-@Composable
-fun GreetingPreview() {
-    ComposableFun()
 }
 
 var serverInstance: EmbeddedServer<
