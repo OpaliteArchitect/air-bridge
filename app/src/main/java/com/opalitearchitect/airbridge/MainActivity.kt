@@ -1,152 +1,132 @@
 package com.opalitearchitect.airbridge
 
 import android.content.Context
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.Button
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
-import io.ktor.server.cio.CIO
-import io.ktor.server.engine.embeddedServer
-import io.ktor.server.response.respondText
-import io.ktor.server.routing.get
-import io.ktor.server.routing.routing
-import java.net.Inet4Address
-import java.net.NetworkInterface
-import kotlin.concurrent.thread
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import io.ktor.server.cio.CIOApplicationEngine
-import io.ktor.server.engine.EmbeddedServer
-import android.net.Uri
-import io.ktor.http.ContentType
-import io.ktor.http.HttpHeaders
-import io.ktor.server.response.respondBytesWriter
-import io.ktor.utils.io.jvm.javaio.toOutputStream
+import io.ktor.server.engine.*
+import java.net.Inet4Address
+import java.net.NetworkInterface
+import java.util.UUID
 
 class MainActivity : ComponentActivity() {
+    private var serverInstance: EmbeddedServer<*, *>? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            ComposableFun()
-        }
-    }
-}
+            val context = LocalContext.current
+            var isServerRunning by remember { mutableStateOf(false) }
+            var serverAddress by remember { mutableStateOf("") }
+            var pin by remember { mutableStateOf("1234") }
 
-var serverInstance: EmbeddedServer<
-        CIOApplicationEngine,
-        CIOApplicationEngine.Configuration
-        >? = null
+            // Track files in UI state so the list recomposes when files are added/removed
+            val sharedFiles = remember { mutableStateListOf<SharedFile>() }
 
-@Composable
-fun ComposableFun() {
-    val context = LocalContext.current
-    var serverAddress by remember { mutableStateOf("") }
-    var isServerRunning by remember { mutableStateOf(false) }
-    var selectedFileUri by remember { mutableStateOf<Uri?>(null) }
+            val filePickerLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.GetContent()
+            ) { uri: Uri? ->
+                if (uri != null) {
+                    val fileName = getFileName(context, uri) ?: "unknown_file"
+                    val fileId = UUID.randomUUID().toString().substring(0, 8)
+                    val fileSize = "Unknown size" // You can query OpenableColumns.SIZE if needed
 
-    val filePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        selectedFileUri = uri
-    }
-
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Button(
-            onClick = {
-                if (serverInstance != null) {
-                    stopKtorServer()
-                    isServerRunning = false
-                    serverAddress = ""
-                    selectedFileUri = null
-                } else {
-                    startKtorServer(context) { selectedFileUri }
-                    isServerRunning = true
-                    serverAddress = "http://${getLocalIpAddress()}:8080"
+                    val newFile = SharedFile(id = fileId, name = fileName, size = fileSize, uri = uri)
+                    FileRepository.files[fileId] = newFile
+                    sharedFiles.add(newFile)
                 }
             }
-        ) {
-            Text(text = if (isServerRunning) "Stop server" else "Start server")
-        }
 
-        if (isServerRunning) {
-            Spacer(modifier = Modifier.height(16.dp))
-            Button(onClick = { filePickerLauncher.launch("*/*") }) {
-                Text(text = if (selectedFileUri == null) "Select File" else "Change File")
-            }
-        }
+            Surface(modifier = Modifier.fillMaxSize()) {
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Spacer(modifier = Modifier.height(32.dp))
+                    Text("Air Bridge Host", style = MaterialTheme.typography.headlineMedium)
 
-        if (serverAddress.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(16.dp))
-            Text(text = serverAddress)
-        }
-    }
-}
+                    Spacer(modifier = Modifier.height(16.dp))
 
-fun startKtorServer(context: Context, getFileUri: () -> Uri?) {
-    thread {
-        serverInstance = embeddedServer(CIO, host = "0.0.0.0", port = 8080) {
-            routing {
-                get("/") {
-                    call.respondText("Hello World!")
-                }
-                get("/download") {
-                    val uri = getFileUri()
-                    if (uri == null) {
-                        call.respondText("No file selected yet.")
-                        return@get
+                    // Server Toggle Button
+                    Button(
+                        onClick = {
+                            if (isServerRunning) {
+                                serverInstance?.stop(1000, 2000)
+                                serverInstance = null
+                                isServerRunning = false
+                                serverAddress = ""
+                                FileRepository.files.clear()
+                                sharedFiles.clear()
+                            } else {
+                                pin = (1000..9999).random().toString()
+                                FileRepository.activePin = pin
+                                serverInstance = startKtorServer(context)
+                                isServerRunning = true
+                                serverAddress = "http://${getLocalIpAddress()}:8080"
+                            }
+                        }
+                    ) {
+                        Text(if (isServerRunning) "Stop Server" else "Start Server")
                     }
 
-                    val inputStream = context.contentResolver.openInputStream(uri)
-                    if (inputStream == null) {
-                        call.respondText("Unable to read file.")
-                        return@get
-                    }
+                    if (isServerRunning) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text("PIN: $pin", style = MaterialTheme.typography.titleLarge)
+                        Text("URL: $serverAddress", style = MaterialTheme.typography.bodyMedium)
 
-                    val fileName = getFileName(context, uri) ?: "downloaded_file"
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Button(onClick = { filePickerLauncher.launch("*/*") }) {
+                            Text("Add File to Share")
+                        }
 
-                    call.response.headers.append(
-                        HttpHeaders.ContentDisposition,
-                        "attachment; filename=\"$fileName\""
-                    )
+                        Spacer(modifier = Modifier.height(16.dp))
 
-                    call.respondBytesWriter(contentType = ContentType.Application.OctetStream) {
-                        inputStream.use { input ->
-                            input.copyTo(this.toOutputStream())
+                        // Active Shared Files List
+                        LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                            items(sharedFiles) { file ->
+                                Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(file.name, style = MaterialTheme.typography.bodyLarge)
+                                            Text("ID: ${file.id}", style = MaterialTheme.typography.bodySmall)
+                                        }
+                                        TextButton(onClick = {
+                                            FileRepository.files.remove(file.id)
+                                            sharedFiles.remove(file)
+                                        }) {
+                                            Text("Remove", color = MaterialTheme.colorScheme.error)
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
         }
-        serverInstance?.start(wait = true)
     }
-}
 
-fun stopKtorServer() {
-    thread {
+    override fun onDestroy() {
+        super.onDestroy()
         serverInstance?.stop(1000, 2000)
-        serverInstance = null
     }
 }
 

@@ -1,6 +1,7 @@
 package com.opalitearchitect.airbridge
 
 import android.net.Uri
+import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 data class SharedFileDto(
