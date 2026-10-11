@@ -55,6 +55,11 @@ object AirBridgeServer {
                 }
 
                 route("/api") {
+                    get("/test") {
+                        val randomInt = (0..100000).random()
+                        call.respond(mapOf("status" to "ok", "random" to randomInt))
+                    }
+
                     post("/auth") {
                         val request = call.receive<AuthRequest>()
                         if (request.pin == activePin) {
