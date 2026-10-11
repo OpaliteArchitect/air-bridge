@@ -23,18 +23,17 @@ import java.net.NetworkInterface
 import java.util.UUID
 
 class MainActivity : ComponentActivity() {
-    private var serverInstance: EmbeddedServer<*, *>? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             val context = LocalContext.current
-            var isServerRunning by remember { mutableStateOf(false) }
+            var isServerRunning by remember { mutableStateOf(AirBridgeServer.isRunning) }
             var serverAddress by remember { mutableStateOf("") }
-            var pin by remember { mutableStateOf("1234") }
+            var pin by remember { mutableStateOf(AirBridgeServer.activePin) }
 
-            // Track files in UI state so the list recomposes when files are added/removed
+            // UI state list to keep track of added files
             val sharedFiles = remember { mutableStateListOf<SharedFile>() }
 
             val filePickerLauncher = rememberLauncherForActivityResult(
@@ -43,10 +42,10 @@ class MainActivity : ComponentActivity() {
                 if (uri != null) {
                     val fileName = getFileName(context, uri) ?: "unknown_file"
                     val fileId = UUID.randomUUID().toString().substring(0, 8)
-                    val fileSize = "Unknown size" // You can query OpenableColumns.SIZE if needed
+                    val fileSize = "Unknown size"
 
                     val newFile = SharedFile(id = fileId, name = fileName, size = fileSize, uri = uri)
-                    FileRepository.files[fileId] = newFile
+                    AirBridgeServer.files[fileId] = newFile
                     sharedFiles.add(newFile)
                 }
             }
@@ -65,18 +64,14 @@ class MainActivity : ComponentActivity() {
                     Button(
                         onClick = {
                             if (isServerRunning) {
-                                serverInstance?.stop(1000, 2000)
-                                serverInstance = null
+                                AirBridgeServer.stop()
                                 isServerRunning = false
                                 serverAddress = ""
-                                FileRepository.files.clear()
                                 sharedFiles.clear()
                             } else {
-                                pin = (1000..9999).random().toString()
-                                FileRepository.activePin = pin
-                                serverInstance = startKtorServer(context)
+                                serverAddress = AirBridgeServer.start(context)
                                 isServerRunning = true
-                                serverAddress = "http://${getLocalIpAddress()}:8080"
+                                pin = AirBridgeServer.activePin
                             }
                         }
                     ) {
@@ -109,7 +104,7 @@ class MainActivity : ComponentActivity() {
                                             Text("ID: ${file.id}", style = MaterialTheme.typography.bodySmall)
                                         }
                                         TextButton(onClick = {
-                                            FileRepository.files.remove(file.id)
+                                            AirBridgeServer.files.remove(file.id)
                                             sharedFiles.remove(file)
                                         }) {
                                             Text("Remove", color = MaterialTheme.colorScheme.error)
@@ -126,11 +121,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        serverInstance?.stop(1000, 2000)
+        AirBridgeServer.stop()
     }
 }
 
-fun getFileName(context: Context, uri: Uri): String? {
+// Helper function to extract file name safely
+private fun getFileName(context: Context, uri: Uri): String? {
     var result: String? = null
     if (uri.scheme == "content") {
         val cursor = context.contentResolver.query(uri, null, null, null, null)
@@ -151,25 +147,4 @@ fun getFileName(context: Context, uri: Uri): String? {
         }
     }
     return result
-}
-
-fun getLocalIpAddress(): String {
-    val result = mutableListOf<String>()
-    try {
-        val interfaces = NetworkInterface.getNetworkInterfaces() ?: return ""
-        while (interfaces.hasMoreElements()) {
-            val networkInterface = interfaces.nextElement()
-            if (!networkInterface.isUp || networkInterface.isLoopback) continue
-            val addresses = networkInterface.inetAddresses
-            while (addresses.hasMoreElements()) {
-                val address = addresses.nextElement()
-                if (!address.isLoopbackAddress && address is Inet4Address) {
-                    address.hostAddress?.let { result.add(it) }
-                }
-            }
-        }
-    } catch (e: Exception) {
-        e.printStackTrace()
-    }
-    return result.joinToString(",")
 }

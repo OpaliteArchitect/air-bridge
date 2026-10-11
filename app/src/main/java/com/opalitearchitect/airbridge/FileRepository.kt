@@ -20,4 +20,5 @@ data class SharedFile(
 object FileRepository {
     val files = ConcurrentHashMap<String, SharedFile>()
     var activePin: String = "1234"
+    val activeTokens = ConcurrentHashMap.newKeySet<String>()
 }
