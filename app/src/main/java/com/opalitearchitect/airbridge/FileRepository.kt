@@ -1,9 +1,11 @@
 package com.opalitearchitect.airbridge
 
 import android.net.Uri
+import kotlinx.serialization.Serializable
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
+@Serializable
 data class SharedFileDto(
     val id: String,
     val name: String,
