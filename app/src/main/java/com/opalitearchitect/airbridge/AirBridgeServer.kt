@@ -13,7 +13,6 @@ import io.ktor.server.routing.*
 import io.ktor.server.http.content.*
 import io.ktor.utils.io.jvm.javaio.toOutputStream
 import kotlinx.serialization.Serializable
-import android.net.Uri
 import java.net.Inet4Address
 import java.net.NetworkInterface
 import java.util.UUID
@@ -50,7 +49,7 @@ object AirBridgeServer {
 
             routing {
                 // Serve React frontend from assets/web
-                staticResources("/", "web") {
+                staticResources("/", "wwwroot") {
                     default("index.html")
                 }
 
