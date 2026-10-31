@@ -14,18 +14,12 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.core.graphics.createBitmap
-import androidx.core.graphics.set
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
 import java.util.UUID
@@ -41,7 +35,6 @@ class MainActivity : ComponentActivity() {
             var serverAddress by remember { mutableStateOf("") }
             var pin by remember { mutableStateOf(AirBridgeServer.activePin) }
 
-            // UI state list to keep track of added files
             val sharedFiles = remember { mutableStateListOf<SharedFile>() }
 
             val filePickerLauncher =
@@ -66,7 +59,7 @@ class MainActivity : ComponentActivity() {
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Spacer(modifier = Modifier.height(32.dp))
-                    Text("Air Bridge Host", style = MaterialTheme.typography.headlineMedium)
+                    Text("AirBridge", style = MaterialTheme.typography.headlineMedium)
 
                     Spacer(modifier = Modifier.height(16.dp))
 
@@ -84,7 +77,7 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     ) {
-                        Text(if (isServerRunning) "Stop Server" else "Start Server")
+                        Text(if (isServerRunning) "Stop sending" else "Start sending")
                     }
 
                     if (isServerRunning) {
@@ -98,14 +91,9 @@ class MainActivity : ComponentActivity() {
                                 modifier = Modifier.fillMaxWidth().padding(16.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally,
                             ) {
-                                Text("Connection Hub", style = MaterialTheme.typography.titleMedium)
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                Text("PIN: $pin", style = MaterialTheme.typography.headlineSmall)
-                                Text(
-                                    "URL: $serverAddress",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                )
+                                Text("PIN: $pin", style = MaterialTheme.typography.titleLarge)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(serverAddress, style = MaterialTheme.typography.bodyMedium)
 
                                 if (serverAddress.isNotEmpty()) {
                                     val qrBitmap =
@@ -116,7 +104,7 @@ class MainActivity : ComponentActivity() {
                                         Spacer(modifier = Modifier.height(12.dp))
                                         Image(
                                             bitmap = it.asImageBitmap(),
-                                            contentDescription = "Server QR Code",
+                                            contentDescription = "QR Code",
                                             modifier = Modifier.size(180.dp),
                                         )
                                     }
@@ -126,8 +114,9 @@ class MainActivity : ComponentActivity() {
 
                         Spacer(modifier = Modifier.height(16.dp))
                         Button(onClick = { filePickerLauncher.launch("*/*") }) {
-                            Text("Add File to Share")
+                            Text("Add file")
                         }
+
                         Spacer(modifier = Modifier.height(16.dp))
 
                         if (sharedFiles.isEmpty()) {
@@ -143,7 +132,7 @@ class MainActivity : ComponentActivity() {
                                     )
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        "Tap the button above to add your first file",
+                                        "Tap the button above to add files",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.outline,
                                     )
@@ -198,7 +187,27 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// Helper function to extract file name safely
+private fun generateQRCodeBitmap(content: String, width: Int = 512, height: Int = 512): Bitmap? {
+    return try {
+        val writer = QRCodeWriter()
+        val bitMatrix = writer.encode(content, BarcodeFormat.QR_CODE, width, height)
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565)
+        for (x in 0 until width) {
+            for (y in 0 until height) {
+                bitmap.setPixel(
+                    x,
+                    y,
+                    if (bitMatrix[x, y]) android.graphics.Color.BLACK
+                    else android.graphics.Color.WHITE,
+                )
+            }
+        }
+        bitmap
+    } catch (e: Exception) {
+        null
+    }
+}
+
 private fun getFileName(context: Context, uri: Uri): String? {
     var result: String? = null
     if (uri.scheme == "content") {
@@ -220,22 +229,4 @@ private fun getFileName(context: Context, uri: Uri): String? {
         }
     }
     return result
-}
-
-private fun generateQRCodeBitmap(content: String, width: Int = 512, height: Int = 512): Bitmap? {
-    return try {
-        val writer = QRCodeWriter()
-        val bitMatrix = writer.encode(content, BarcodeFormat.QR_CODE, width, height)
-        val bitmap = createBitmap(width, height, Bitmap.Config.RGB_565)
-        for (x in 0 until width) {
-            for (y in 0 until height) {
-                bitmap[x, y] =
-                    if (bitMatrix[x, y]) android.graphics.Color.BLACK
-                    else android.graphics.Color.WHITE
-            }
-        }
-        bitmap
-    } catch (_: Exception) {
-        null
-    }
 }
